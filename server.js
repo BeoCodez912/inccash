@@ -12,33 +12,24 @@ const port = process.env.PORT || 3000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 
 /* -------------------- persistence helpers -------------------- */
 function loadData() {
-  const file = process.env.DATA_FILE || path.join(__dirname, 'data.json');
-  return JSON.parse(fs.readFileSync(file, 'utf-8'));
+  if (!fs.existsSync(DATA_FILE)) {
+    return { balance: 0, transactionRules: {}, blockchain: [], Name: "Alice", Hope: "Bob", Friend: "Charlie", difficulty: 4, chainId: "" };
+  }
+  return JSON.parse(fs.readFileSync(DATA_FILE, 'utf-8'));
 }
 function saveData(data) {
-  const file = process.env.DATA_FILE || path.join(__dirname, 'data.json');
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-/* -------------------- load existing blockchain -------------------- */
-let { balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId } = loadData();
-
-/* -------------------- mining config -------------------- */
-const TARGET_BLOCK_TIME_MS = 3000;
-const DIFFICULTY_ADJUSTMENT_INTERVAL = 5;
-
-/* -------------------- chain identity -------------------- */
+/* -------------------- blockchain helpers -------------------- */
 function computeChainId(name, hope, friend) {
   const basis = `${name ?? ''}|${hope ?? ''}|${friend ?? ''}`;
   return crypto.createHash('sha256').update(basis).digest('hex');
 }
-if (!chainId || chainId.length === 0) chainId = computeChainId(Name, Hope, Friend);
-if (!difficulty || difficulty < 1) difficulty = 4;
-
-/* -------------------- blockchain primitives -------------------- */
 function makeBlockId(index, transactionId, timestamp) {
   return crypto.createHash('sha256').update(`${index}:${transactionId}:${timestamp}`).digest('hex');
 }
@@ -56,9 +47,7 @@ function mineBlock(index, prevHash, transactionId, amount, diff) {
   const blockId = makeBlockId(index, transactionId, timestamp);
 
   console.log(`⛏ Mining block #${index} at difficulty ${diff}...`);
-
-  let nonce = 0;
-  let hash = '';
+  let nonce = 0, hash = '';
   const t0 = Date.now();
   do {
     nonce++;
@@ -66,23 +55,10 @@ function mineBlock(index, prevHash, transactionId, amount, diff) {
   } while (!hash.startsWith(prefix));
   const miningTimeMs = Date.now() - t0;
 
-  console.log(`✅ Block #${index} mined in ${(miningTimeMs / 1000).toFixed(2)}s — ${hash.slice(0,16)}…`);
+  console.log(`✅ Block #${index} mined in ${(miningTimeMs/1000).toFixed(2)}s — ${hash.slice(0,16)}…`);
 
-  return {
-    chainId,
-    blockId,
-    index,
-    prevHash,
-    transactionHash,
-    nonce,
-    hash,
-    timestamp,
-    transactionId,
-    amount,
-    miningTimeMs
-  };
+  return { chainId, blockId, index, prevHash, transactionHash, nonce, hash, timestamp, transactionId, amount, miningTimeMs };
 }
-
 function isBlockchainValid(chain) {
   if (!Array.isArray(chain) || chain.length === 0) return true;
   for (let i = 1; i < chain.length; i++) {
@@ -97,6 +73,9 @@ function isBlockchainValid(chain) {
   return true;
 }
 
+/* -------------------- difficulty adjust -------------------- */
+const TARGET_BLOCK_TIME_MS = 3000;
+const DIFFICULTY_ADJUSTMENT_INTERVAL = 5;
 function adjustDifficultyIfNeeded() {
   const len = blockchain.length;
   if (len > 1 && len % DIFFICULTY_ADJUSTMENT_INTERVAL === 0) {
@@ -110,81 +89,69 @@ function adjustDifficultyIfNeeded() {
   }
 }
 
-/* -------------------- initialize chain (3 genesis blocks) -------------------- */
-if (!blockchain || blockchain.length === 0) {
+/* -------------------- load data -------------------- */
+let { balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId } = loadData();
+chainId = chainId || computeChainId(Name, Hope, Friend);
+difficulty = difficulty || 4;
+
+/* -------------------- auto-fix / initialize genesis blocks -------------------- */
+if (!blockchain || !isBlockchainValid(blockchain) || blockchain.length === 0) {
+  console.log("🚨 Chain invalid or empty, reinitializing genesis blocks...");
   blockchain = [];
-  const txIds = ['nynvg5vw3srg1g3k5qmqqe13x','9KWCWTX3D'];
-  txIds.forEach((id,i)=>{
-    const prevHash = i===0?'0':blockchain[i-1].hash;
-    blockchain.push(mineBlock(i, prevHash, id, transactionRules[id]??0, difficulty));
+
+  const firstTx = "nynvg5vw3srg1g3k5qmqqe13x";
+  const secondTx = "9KWCWTX3D";
+  const lastTx = Object.keys(transactionRules).slice(-1)[0] || "initial-tx";
+
+  let prevHash = "0";
+  [firstTx, secondTx, lastTx].forEach((txId, idx) => {
+    const amt = transactionRules[txId] ?? 0;
+    const blk = mineBlock(idx, prevHash, txId, amt, difficulty);
+    blockchain.push(blk);
+    prevHash = blk.hash;
   });
-  const lastTxId = Object.keys(transactionRules).pop();
-  const lastPrev = blockchain[blockchain.length-1].hash;
-  blockchain.push(mineBlock(2, lastPrev, lastTxId, transactionRules[lastTxId]??0, difficulty));
+
   saveData({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId });
 }
 
 /* -------------------- express setup -------------------- */
-app.use(bodyParser.json({ verify:(req,res,buf)=>req.rawBody=buf }));
-app.use(express.static(path.join(__dirname,'public')));
+app.use(bodyParser.json({ verify: (req,res,buf)=>{req.rawBody=buf;} }));
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (_req,res)=>res.sendFile(path.join(__dirname,'public','index.html')));
 
 /* -------------------- endpoints -------------------- */
+app.get('/state', (_req,res)=>res.json({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId }));
+app.get('/balance', (_req,res)=>res.json({ balance }));
 app.get('/chain', (_req,res)=>{
   const head = blockchain[blockchain.length-1];
-  res.json({ chainId, name:Name, hope:Hope, friend:Friend, length:blockchain.length, head:{index:head.index, hash:head.hash, blockId:head.blockId, timestamp:head.timestamp}, difficulty });
+  res.json({ chainId, name:Name, hope:Hope, friend:Friend, length:blockchain.length, head:{ index: head.index, hash: head.hash, blockId: head.blockId, timestamp: head.timestamp }, difficulty });
 });
-app.get('/state', (_req,res)=>res.json({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId }));
-app.get('/blocks/:blockId',(req,res)=>{
+app.get('/blocks/:blockId', (req,res)=>{
   const block = blockchain.find(b=>b.blockId===req.params.blockId);
   if(!block) return res.status(404).json({error:'Block not found'});
   res.json(block);
 });
-app.get('/tx/:transactionId',(req,res)=>{
+app.get('/tx/:transactionId', (req,res)=>{
   const matches = blockchain.filter(b=>b.transactionId===req.params.transactionId);
   if(matches.length===0) return res.status(404).json({error:'No blocks for that transactionId'});
   res.json(matches);
 });
-app.get('/balance', (_req,res)=>res.json({ balance }));
 
-/* -------------------- deposit endpoint -------------------- */
-app.post('/deposit',(req,res)=>{
-  const {transactionId,amount} = req.body||{};
+/* -------------------- deposit -------------------- */
+app.post('/deposit', (req,res)=>{
+  const { transactionId, amount } = req.body || {};
   const amt = Number(amount);
-  if(!transactionId||!Number.isFinite(amt)||amt<=0) return res.status(400).json({error:'Provide transactionId and a positive amount'});
-  if(!isBlockchainValid(blockchain)) return res.status(500).json({error:'Blockchain invalid'});
+  if(!transactionId || !Number.isFinite(amt) || amt<=0) return res.status(400).json({ error:'Provide transactionId and positive amount' });
+
   const prev = blockchain[blockchain.length-1];
   const block = mineBlock(blockchain.length, prev.hash, transactionId, amt, difficulty);
   blockchain.push(block);
+
   balance += amt;
   adjustDifficultyIfNeeded();
   saveData({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId });
-  res.json({ ok:true, balance, block });
-});
 
-/* -------------------- webhook -------------------- */
-function isValidSquareSignature(req){
-  const sig = req.headers['x-square-signature'];
-  if(!process.env.WEBHOOK_SIGNATURE_KEY) return false;
-  const expected = crypto.createHmac('sha1',process.env.WEBHOOK_SIGNATURE_KEY).update(req.rawBody).digest('base64');
-  return sig===expected;
-}
-app.post('/square-webhook',(req,res)=>{
-  if(!isValidSquareSignature(req)) return res.status(401).send('Invalid signature');
-  if(!isBlockchainValid(blockchain)) return res.status(500).send('Blockchain invalid');
-  const event = req.body;
-  if(event.type==='payment.created'){
-    const paymentId = event.data.id;
-    if(transactionRules[paymentId]){
-      balance+=transactionRules[paymentId];
-      const prev = blockchain[blockchain.length-1];
-      const block = mineBlock(blockchain.length, prev.hash, paymentId, transactionRules[paymentId], difficulty);
-      blockchain.push(block);
-      adjustDifficultyIfNeeded();
-      saveData({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId });
-    }
-  }
-  res.status(200).send('OK');
+  res.json({ ok:true, balance, block });
 });
 
 /* -------------------- start server -------------------- */
