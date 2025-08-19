@@ -15,10 +15,12 @@ const __dirname = path.dirname(__filename);
 
 /* -------------------- persistence helpers -------------------- */
 function loadData() {
-  return JSON.parse(fs.readFileSync(process.env.DATA_FILE, 'utf-8'));
+  const file = process.env.DATA_FILE || path.join(__dirname, 'data.json');
+  return JSON.parse(fs.readFileSync(file, 'utf-8'));
 }
 function saveData(data) {
-  fs.writeFileSync(process.env.DATA_FILE, JSON.stringify(data, null, 2));
+  const file = process.env.DATA_FILE || path.join(__dirname, 'data.json');
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
 }
 
 /* -------------------- load existing blockchain -------------------- */
@@ -134,22 +136,33 @@ function adjustDifficultyIfNeeded() {
 }
 
 /* -------------------- initialize chain (genesis) -------------------- */
+/* If the chain is empty, create 3 genesis blocks:
+   1) first transactionId,
+   2) second transactionId,
+   3) the *last* transactionId found in transactionRules (your request).
+*/
 if (!blockchain || blockchain.length === 0) {
   blockchain = [];
 
-  // Genesis block = first transaction
-  const firstTxId = "nynvg5vw3srg1g3k5qmqqe13x";
+  // 1) first
+  const firstTxId = 'nynvg5vw3srg1g3k5qmqqe13x';
   const firstTxAmount = transactionRules[firstTxId] ?? 0;
-  const genesis = mineBlock(0, '0', firstTxId, firstTxAmount, difficulty);
-  blockchain.push(genesis);
+  const g1 = mineBlock(0, '0', firstTxId, firstTxAmount, difficulty);
+  blockchain.push(g1);
 
-  // Second block = second transaction
-  const secondTxId = "9KWCWTX3D";
+  // 2) second
+  const secondTxId = '9KWCWTX3D';
   const secondTxAmount = transactionRules[secondTxId] ?? 0;
-  const secondBlock = mineBlock(1, genesis.hash, secondTxId, secondTxAmount, difficulty);
-  blockchain.push(secondBlock);
+  const g2 = mineBlock(1, g1.hash, secondTxId, secondTxAmount, difficulty);
+  blockchain.push(g2);
 
-  // Persist initial chain
+  // 3) last key in rules
+  const ruleKeys = Object.keys(transactionRules);
+  const lastTxId = ruleKeys[ruleKeys.length - 1];
+  const lastTxAmount = transactionRules[lastTxId] ?? 0;
+  const g3 = mineBlock(2, g2.hash, lastTxId, lastTxAmount, difficulty);
+  blockchain.push(g3);
+
   saveData({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId });
 }
 
@@ -157,17 +170,16 @@ if (!blockchain || blockchain.length === 0) {
 app.use(bodyParser.json({
   verify: (req, res, buf) => { req.rawBody = buf; }
 }));
-app.use(express.static(path.join(__dirname, 'public')));
 
-/* -------------------- endpoints -------------------- */
+// static UI
+import { fileURLToPath as __f } from 'url';
+app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (_req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.get('/rules', (_req, res) => {
-  res.json({ balance, transactionRules, blockchain, difficulty });
-});
-
+/* -------------------- read endpoints -------------------- */
+// short summary (kept)
 app.get('/chain', (_req, res) => {
   const head = blockchain[blockchain.length - 1];
   res.json({
@@ -181,21 +193,58 @@ app.get('/chain', (_req, res) => {
   });
 });
 
+// full state (added)
+app.get('/state', (_req, res) => {
+  res.json({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId });
+});
+
+// block by blockId
 app.get('/blocks/:blockId', (req, res) => {
   const block = blockchain.find(b => b.blockId === req.params.blockId);
   if (!block) return res.status(404).json({ error: 'Block not found' });
   res.json(block);
 });
 
+// blocks by transactionId
 app.get('/tx/:transactionId', (req, res) => {
   const matches = blockchain.filter(b => b.transactionId === req.params.transactionId);
   if (matches.length === 0) return res.status(404).json({ error: 'No blocks for that transactionId' });
   res.json(matches);
 });
 
+// balance (added)
+app.get('/balance', (_req, res) => {
+  res.json({ balance });
+});
+
+/* -------------------- deposit endpoint (added) -------------------- */
+app.post('/deposit', (req, res) => {
+  const { transactionId, amount } = req.body || {};
+  const amt = Number(amount);
+  if (!transactionId || !Number.isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ error: 'Provide transactionId and a positive amount' });
+  }
+
+  if (!isBlockchainValid(blockchain)) {
+    console.error('🚨 Chain invalid; rejecting new blocks.');
+    return res.status(500).json({ error: 'Blockchain invalid' });
+  }
+
+  const prev = blockchain[blockchain.length - 1];
+  const block = mineBlock(blockchain.length, prev.hash, transactionId, amt, difficulty);
+  blockchain.push(block);
+
+  balance += amt;
+  adjustDifficultyIfNeeded();
+  saveData({ balance, transactionRules, blockchain, Name, Hope, Friend, difficulty, chainId });
+
+  res.json({ ok: true, balance, block });
+});
+
 /* -------------------- webhook security -------------------- */
 function isValidSquareSignature(req) {
   const sig = req.headers['x-square-signature'];
+  if (!process.env.WEBHOOK_SIGNATURE_KEY) return false;
   const expected = crypto
     .createHmac('sha1', process.env.WEBHOOK_SIGNATURE_KEY)
     .update(req.rawBody)
