@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Blockchain Mining Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { --bg:#0e0f12; --panel:#15171c; --alt:#1e2128; --text:#eaecef; --muted:#9aa4b2; --border:#2a2f38; }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}
+    header{padding:16px 20px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+    h1{margin:0;font-size:18px}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;padding:16px}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
+    .label{color:var(--muted);font-size:12px;text-transform:uppercase}
+    .value{margin-top:6px;font-size:18px;font-weight:700}
+    .table-wrap{padding:16px}
+    table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border)}
+    th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);font-size:13px}
+    th{background:var(--alt);color:var(--muted);font-weight:700}
+    tr:hover td{background:#1a1d24}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--alt);border:1px solid var(--border);font-size:12px;color:var(--muted)}
+    .footer{color:var(--muted);text-align:center;padding:12px}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>⛏ Blockchain Mining Dashboard</h1>
+    <div>
+      <a class="pill" href="/rules" target="_blank">/rules</a>
+      <a class="pill" href="/chain" target="_blank">/chain</a>
+    </div>
+  </header>
+
+  <section class="stats">
+    <div class="card">
+      <div class="label">Balance</div>
+      <div class="value mono" id="balance">$0.00</div>
+    </div>
+    <div class="card">
+      <div class="label">Difficulty</div>
+      <div class="value mono" id="difficulty">0</div>
+    </div>
+    <div class="card">
+      <div class="label">Chain ID</div>
+      <div class="value mono" id="chainId">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Head</div>
+      <div class="value mono"><span id="headIndex">#0</span> • <span id="headHash">—</span></div>
+    </div>
+  </section>
+
+  <section class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Index</th>
+          <th>Block ID</th>
+          <th>Hash</th>
+          <th>Prev</th>
+          <th>Nonce</th>
+          <th>Tx ID</th>
+          <th>Amount</th>
+          <th>Mine Time (ms)</th>
+        </tr>
+      </thead>
+      <tbody id="blocks"></tbody>
+    </table>
+  </section>
+
+  <div class="footer mono">Auto-refreshing every 2s • Click block/tx to open explorer endpoints.</div>
+
+  <script>
+    async function fetchJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(r.status); return r.json(); }
+    function short(s,n=16){ return s? (s.slice(0,n)+'…') : '—'; }
+
+    async function refresh(){
+      try{
+        const data = await fetchJSON('/rules');
+        const meta = await fetchJSON('/chain');
+        document.getElementById('balance').textContent = `$${Number(data.balance).toFixed(2)}`;
+        document.getElementById('difficulty').textContent = data.difficulty;
+        document.getElementById('chainId').textContent = short(meta.chainId, 24);
+        document.getElementById('headIndex').textContent = `#${meta.head.index}`;
+        document.getElementById('headHash').textContent = short(meta.head.hash, 16);
+
+        const tbody = document.getElementById('blocks');
+        tbody.innerHTML = '';
+        data.blockchain.slice().reverse().forEach(b => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="mono">#${b.index}</td>
+            <td class="mono"><a class="pill" href="/blocks/${b.blockId}" target="_blank">${short(b.blockId,14)}</a></td>
+            <td class="mono">${short(b.hash,16)}</td>
+            <td class="mono">${short(b.prevHash,12)}</td>
+            <td class="mono">${b.nonce}</td>
+            <td class="mono"><a class="pill" href="/tx/${b.transactionId}" target="_blank">${b.transactionId}</a></td>
+            <td class="mono">$${Number(b.amount).toFixed(2)}</td>
+            <td class="mono">${b.miningTimeMs ?? ''}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      }catch(e){ console.error(e); }
+    }
+
+    setInterval(refresh,2000);
+    refresh();
+  </script>
+</body>
+</html>
