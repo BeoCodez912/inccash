@@ -1,111 +1,171 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Blockchain Mining Dashboard</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini Chain Dashboard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    :root { --bg:#0e0f12; --panel:#15171c; --alt:#1e2128; --text:#eaecef; --muted:#9aa4b2; --border:#2a2f38; }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:var(--bg);color:var(--text)}
-    header{padding:16px 20px;background:var(--panel);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
-    h1{margin:0;font-size:18px}
-    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;padding:16px}
-    .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px}
-    .label{color:var(--muted);font-size:12px;text-transform:uppercase}
-    .value{margin-top:6px;font-size:18px;font-weight:700}
-    .table-wrap{padding:16px}
-    table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--border)}
-    th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);font-size:13px}
-    th{background:var(--alt);color:var(--muted);font-weight:700}
-    tr:hover td{background:#1a1d24}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-    .pill{display:inline-block;padding:4px 8px;border-radius:999px;background:var(--alt);border:1px solid var(--border);font-size:12px;color:var(--muted)}
-    .footer{color:var(--muted);text-align:center;padding:12px}
+    :root { --bg:#0f172a; --card:#111827; --muted:#cbd5e1; --text:#e5e7eb; --accent:#22c55e; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; background:linear-gradient(160deg,#0b1024,#0f172a 60%); color:var(--text); }
+    header { padding:24px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #1f2937; }
+    .title { font-size:20px; font-weight:700; letter-spacing:0.3px; }
+    .chip { padding:6px 10px; background:#1f2937; border:1px solid #273144; border-radius:999px; font-size:12px; color:var(--muted); }
+    main { max-width:1100px; margin:24px auto; padding:0 16px; display:grid; gap:16px; grid-template-columns: 1fr; }
+    .grid { display:grid; gap:16px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+    .card { background:var(--card); border:1px solid #1f2937; border-radius:16px; padding:16px; box-shadow:0 10px 30px rgba(0,0,0,0.25); }
+    .card h2 { margin:0 0 12px; font-size:16px; color:#d1d5db; letter-spacing:0.2px; }
+    .row { display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+    .stat { background:#0b1222; border:1px solid #1c2740; padding:12px 14px; border-radius:12px; min-width:160px; }
+    .stat .label { color:var(--muted); font-size:12px; }
+    .stat .val { font-weight:800; font-size:20px; margin-top:4px; }
+    input, button { height:40px; border-radius:10px; border:1px solid #263149; background:#0b1222; color:#e5e7eb; padding:0 12px; }
+    input::placeholder { color:#7c849b; }
+    button { background:linear-gradient(180deg,#1cc87b,#16a34a); border:none; cursor:pointer; font-weight:700; }
+    table { width:100%; border-collapse:collapse; }
+    th, td { padding:10px 8px; border-bottom:1px solid #1f2937; font-size:13px; }
+    th { text-align:left; color:#9ca3af; font-weight:600; }
+    code { background:#0b1222; border:1px solid #1c2740; padding:2px 6px; border-radius:6px; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .right { text-align:right; }
   </style>
 </head>
 <body>
   <header>
-    <h1>⛏ Blockchain Mining Dashboard</h1>
-    <div>
-      <a class="pill" href="/rules" target="_blank">/rules</a>
-      <a class="pill" href="/chain" target="_blank">/chain</a>
-    </div>
+    <div class="title">Mini Chain Dashboard</div>
+    <div class="chip" id="chain-id">chain: …</div>
   </header>
 
-  <section class="stats">
-    <div class="card">
-      <div class="label">Balance</div>
-      <div class="value mono" id="balance">$0.00</div>
-    </div>
-    <div class="card">
-      <div class="label">Difficulty</div>
-      <div class="value mono" id="difficulty">0</div>
-    </div>
-    <div class="card">
-      <div class="label">Chain ID</div>
-      <div class="value mono" id="chainId">—</div>
-    </div>
-    <div class="card">
-      <div class="label">Head</div>
-      <div class="value mono"><span id="headIndex">#0</span> • <span id="headHash">—</span></div>
-    </div>
-  </section>
+  <main>
+    <div class="grid">
+      <section class="card">
+        <h2>Overview</h2>
+        <div class="row" style="margin-bottom:12px;">
+          <div class="stat">
+            <div class="label">Balance</div>
+            <div class="val mono" id="balance">$0.00</div>
+          </div>
+          <div class="stat">
+            <div class="label">Blocks</div>
+            <div class="val mono" id="block-count">0</div>
+          </div>
+          <div class="stat">
+            <div class="label">Difficulty</div>
+            <div class="val mono" id="difficulty">-</div>
+          </div>
+        </div>
+        <div class="row">
+          <button id="refresh">Refresh</button>
+          <button id="copy-endpoints" class="secondary">Copy API endpoints</button>
+        </div>
+      </section>
 
-  <section class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Index</th>
-          <th>Block ID</th>
-          <th>Hash</th>
-          <th>Prev</th>
-          <th>Nonce</th>
-          <th>Tx ID</th>
-          <th>Amount</th>
-          <th>Mine Time (ms)</th>
-        </tr>
-      </thead>
-      <tbody id="blocks"></tbody>
-    </table>
-  </section>
+      <section class="card">
+        <h2>Deposit / Mine</h2>
+        <div class="row" style="margin-bottom:8px;">
+          <input id="tx-id" placeholder="Transaction ID (auto if empty)" style="flex:1; min-width:220px;" />
+          <input id="amount" type="number" step="0.01" min="0.01" placeholder="Amount e.g. 5.50" style="width:160px;" />
+          <button id="deposit">Deposit</button>
+        </div>
+        <div class="row" style="color:#9ca3af; font-size:12px;">
+          <div>POST <code>/deposit</code> with <code>{"transactionId","amount"}</code></div>
+        </div>
+      </section>
+    </div>
 
-  <div class="footer mono">Auto-refreshing every 2s • Click block/tx to open explorer endpoints.</div>
+    <section class="card">
+      <h2>Blocks</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Tx ID</th>
+            <th class="right">Amount</th>
+            <th>Hash</th>
+            <th>Prev</th>
+            <th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="blocks"></tbody>
+      </table>
+    </section>
+  </main>
 
   <script>
-    async function fetchJSON(url){ const r = await fetch(url); if(!r.ok) throw new Error(r.status); return r.json(); }
-    function short(s,n=16){ return s? (s.slice(0,n)+'…') : '—'; }
+    const $ = (s) => document.querySelector(s);
+    const fmt = (n) => "$" + Number(n).toFixed(2);
+    const trunc = (s, n=10) => (s && s.length>n ? s.slice(0,n) + "…" : s || "");
 
-    async function refresh(){
-      try{
-        const data = await fetchJSON('/rules');
-        const meta = await fetchJSON('/chain');
-        document.getElementById('balance').textContent = `$${Number(data.balance).toFixed(2)}`;
-        document.getElementById('difficulty').textContent = data.difficulty;
-        document.getElementById('chainId').textContent = short(meta.chainId, 24);
-        document.getElementById('headIndex').textContent = `#${meta.head.index}`;
-        document.getElementById('headHash').textContent = short(meta.head.hash, 16);
+    async function getState() {
+      const res = await fetch("/state");
+      if (!res.ok) throw new Error("Failed to load /state");
+      return res.json();
+    }
 
-        const tbody = document.getElementById('blocks');
-        tbody.innerHTML = '';
-        data.blockchain.slice().reverse().forEach(b => {
-          const tr = document.createElement('tr');
+    async function refresh() {
+      try {
+        const data = await getState();
+        const chain = data.blockchain || [];
+        $("#balance").textContent = fmt(data.balance ?? 0);
+        $("#block-count").textContent = chain.length;
+        $("#difficulty").textContent = data.difficulty ?? "-";
+        $("#chain-id").textContent = "chain: " + trunc(data.chainId, 16);
+
+        const tbody = $("#blocks");
+        tbody.innerHTML = "";
+        chain.slice().reverse().forEach(b => {
+          const tr = document.createElement("tr");
           tr.innerHTML = `
-            <td class="mono">#${b.index}</td>
-            <td class="mono"><a class="pill" href="/blocks/${b.blockId}" target="_blank">${short(b.blockId,14)}</a></td>
-            <td class="mono">${short(b.hash,16)}</td>
-            <td class="mono">${short(b.prevHash,12)}</td>
-            <td class="mono">${b.nonce}</td>
-            <td class="mono"><a class="pill" href="/tx/${b.transactionId}" target="_blank">${b.transactionId}</a></td>
-            <td class="mono">$${Number(b.amount).toFixed(2)}</td>
-            <td class="mono">${b.miningTimeMs ?? ''}</td>
+            <td class="mono">${b.index}</td>
+            <td class="mono">${trunc(b.transactionId, 18)}</td>
+            <td class="mono right">${fmt(b.amount ?? 0)}</td>
+            <td class="mono">${trunc(b.hash, 14)}</td>
+            <td class="mono">${trunc(b.prevHash, 14)}</td>
+            <td class="mono">${new Date(b.timestamp).toLocaleString()}</td>
           `;
           tbody.appendChild(tr);
         });
-      }catch(e){ console.error(e); }
+      } catch (e) {
+        console.error(e);
+        alert("Failed to load chain. Is the server running?");
+      }
     }
 
-    setInterval(refresh,2000);
+    async function deposit() {
+      const amount = parseFloat($("#amount").value);
+      const txId = $("#tx-id").value.trim() || ("tx-" + Date.now());
+      if (!amount || amount <= 0) return alert("Enter a positive amount.");
+
+      try {
+        const res = await fetch("/deposit", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ transactionId: txId, amount })
+        });
+        const out = await res.json();
+        if (!res.ok) throw new Error(out?.error || "Deposit failed");
+        $("#amount").value = "";
+        $("#tx-id").value = "";
+        await refresh();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || "Deposit failed");
+      }
+    }
+
+    $("#refresh").addEventListener("click", refresh);
+    $("#deposit").addEventListener("click", deposit);
+    $("#copy-endpoints").addEventListener("click", () => {
+      const base = location.origin;
+      const text = [
+        `GET  ${base}/state`,
+        `GET  ${base}/balance`,
+        `POST ${base}/deposit  body: {"transactionId":"tx-123","amount":5.5}`
+      ].join("\n");
+      navigator.clipboard.writeText(text).then(() => alert("Endpoints copied!"));
+    });
+
     refresh();
   </script>
 </body>
